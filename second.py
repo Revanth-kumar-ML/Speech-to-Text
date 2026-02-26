@@ -1,45 +1,64 @@
+from flask import Flask, request, jsonify, render_template
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 import torch
 import librosa
+import io
+import time
 
-# Choose device
+app = Flask(__name__)
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
-# Load model once
 model_name = "AventIQ-AI/whisper-audio-to-text"
 model = WhisperForConditionalGeneration.from_pretrained(model_name).to(device)
 processor = WhisperProcessor.from_pretrained(model_name)
 
-# Load and process audio file
-def load_audio(file_path, target_sampling_rate=16000):
-    # librosa automatically converts to mono and resamples
-    audio, _ = librosa.load(file_path, sr=target_sampling_rate)
-    return audio
+@app.route("/")
+def home():
+    return render_template("index.html")
 
-# Give correct path (IMPORTANT: use raw string for Windows path)
-input_audio_path = r"D:\ML_intern\Speech-to-Text\fromapp.wav"
+@app.route("/speech-to-text", methods=["POST"])
+def speech_to_text():
 
-# Load audio
-audio_array = load_audio(input_audio_path)
+    if "audio" not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
 
-# Convert to model input
-input_features = processor(
-    audio_array,
-    sampling_rate=16000,
-    return_tensors="pt"
-).input_features.to(device)
+    file = request.files["audio"]
 
-with torch.no_grad():
-    predicted_ids = model.generate(
-        input_features,
-        task="transcribe",
-        language="en"
-    )
+    # Read file into memory
+    audio_bytes = file.read()
+    audio_stream = io.BytesIO(audio_bytes)
 
-# Decode output
-transcription = processor.batch_decode(
-    predicted_ids,
-    skip_special_tokens=True
-)[0]
+    # Load audio
+    audio_array, _ = librosa.load(audio_stream, sr=16000)
 
-print(f"Transcribed Text: {transcription}")
+    input_features = processor(
+        audio_array,
+        sampling_rate=16000,
+        return_tensors="pt"
+    ).input_features.to(device)
+
+    with torch.no_grad():
+        predicted_ids = model.generate(
+            input_features,
+            task="transcribe",
+            language="en"
+        )
+
+    transcription = processor.batch_decode(
+        predicted_ids,
+        skip_special_tokens=True
+    )[0]
+
+    start_time = time.time()
+
+    # your transcription code here...
+
+    end_time = time.time()
+
+    return jsonify({
+        "text": transcription,
+        "time_taken": f"{round(end_time - start_time, 2)} seconds"
+    })
+if __name__ == "__main__":
+    app.run(debug=True)
