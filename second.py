@@ -1,40 +1,45 @@
-from transformers import WhisperProcessor, WhisperForConditionalGeneration # pip install transformers
-import torch # pip install torch
-import torchaudio # pip install torchaudio and pip install torchcodec
+from transformers import WhisperProcessor, WhisperForConditionalGeneration
+import torch
+import librosa
 
+# Choose device
 device = "cuda" if torch.cuda.is_available() else "cpu"
 
+# Load model once
 model_name = "AventIQ-AI/whisper-audio-to-text"
 model = WhisperForConditionalGeneration.from_pretrained(model_name).to(device)
 processor = WhisperProcessor.from_pretrained(model_name)
 
 # Load and process audio file
 def load_audio(file_path, target_sampling_rate=16000):
-    # Load audio file
-    waveform, sample_rate = torchaudio.load(file_path)
+    # librosa automatically converts to mono and resamples
+    audio, _ = librosa.load(file_path, sr=target_sampling_rate)
+    return audio
 
-    # Convert to mono if stereo
-    if waveform.shape[0] > 1:
-        waveform = waveform.mean(dim=0, keepdim=True)
+# Give correct path (IMPORTANT: use raw string for Windows path)
+input_audio_path = r"D:\ML_intern\Speech-to-Text\fromapp.wav"
 
-    # Resample if needed
-    if sample_rate != target_sampling_rate:
-        waveform = torchaudio.transforms.Resample(orig_freq=sample_rate, new_freq=target_sampling_rate)(waveform)
-
-    return waveform.squeeze(0).numpy()
-
-input_audio_path = "/home/avinash/Downloads/fromapp.wav"  # Change this to your audio file
+# Load audio
 audio_array = load_audio(input_audio_path)
 
-input_features = processor(audio_array, sampling_rate=16000, return_tensors="pt").input_features
-input_features = input_features.to(device)
-
-forced_decoder_ids = processor.get_decoder_prompt_ids(language="en", task="transcribe")
+# Convert to model input
+input_features = processor(
+    audio_array,
+    sampling_rate=16000,
+    return_tensors="pt"
+).input_features.to(device)
 
 with torch.no_grad():
-    predicted_ids = model.generate(input_features, forced_decoder_ids=forced_decoder_ids)
+    predicted_ids = model.generate(
+        input_features,
+        task="transcribe",
+        language="en"
+    )
 
 # Decode output
-transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
+transcription = processor.batch_decode(
+    predicted_ids,
+    skip_special_tokens=True
+)[0]
 
 print(f"Transcribed Text: {transcription}")
